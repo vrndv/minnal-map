@@ -86,8 +86,12 @@ jobs:
             echo "changed_count=ALL (first run)" >> $GITHUB_OUTPUT
           else
             rsync -a --checksum --delete --itemize-changes \
-              temp/web_extracted/ mirror/ > temp/rsync_log.txt 2>&1 \
-              || { rc=$?; [ $rc -eq 24 ] || exit $rc; }
+              temp/web_extracted/ mirror/ > temp/rsync_log.txt 2>&1
+            rc=$?
+            if [[ $rc -ne 0 && $rc -ne 24 ]]; then
+              echo "❌ rsync failed with exit code $rc"
+              exit $rc
+            fi
             cat temp/rsync_log.txt
             CHANGED=$(grep -c "^[>*]" temp/rsync_log.txt 2>/dev/null || echo 0)
             echo "Files changed: $CHANGED"
