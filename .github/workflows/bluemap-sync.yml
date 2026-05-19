@@ -1,16 +1,8 @@
 name: BlueMap Sync
 
 on:
-  # ── Run automatically on a schedule ───────────────────────────────────────
-  # Runs every day at midnight UTC — adjust to your preference
-  # Examples:
-  #   '0 0 * * *'    = daily at midnight UTC
-  #   '0 18 * * *'   = daily at 11:30 PM IST (18:00 UTC)
-  #   '0 */12 * * *' = every 12 hours
   schedule:
     - cron: '0 18 * * *'
-
-  # ── Manual trigger from GitHub Actions UI ─────────────────────────────────
   workflow_dispatch:
     inputs:
       reason:
@@ -21,34 +13,34 @@ on:
 jobs:
   sync:
     runs-on: ubuntu-latest
-    timeout-minutes: 60      # kill job if it hangs (e.g. SFTP stall)
+    timeout-minutes: 60
 
     steps:
 
-      # ── 1. Checkout the map repo (minnal) ───────────────────────────────────
-      - name: Checkout minnal repo
+      # ── 1. Checkout repo ──────────────────────────────────────────────────────
+      - name: Checkout repo
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.GH_PAT }}
-          fetch-depth: 0        # full history so incremental push works
+          fetch-depth: 0
 
-      # ── 2. Restore mirror cache ──────────────────────────────────────────────
-      #   mirror/ persists between runs so rsync can diff properly.
-      #   Cache key includes the week number — resets weekly as a safety measure.
+      # ── 2. Restore mirror cache ───────────────────────────────────────────────
+      # FIX: stable primary key + run_id suffix so new cache is always written,
+      # but restore-keys ensures the latest saved cache is always picked up.
       - name: Restore mirror cache
         uses: actions/cache@v4
         with:
           path: mirror
-          key: bluemap-mirror-${{ github.run_number }}
+          key: bluemap-mirror-${{ github.run_id }}
           restore-keys: |
             bluemap-mirror-
 
-      # ── 3. Install dependencies ──────────────────────────────────────────────
-      - name: Install lftp and rsync
+      # ── 3. Install dependencies ───────────────────────────────────────────────
+      - name: Install dependencies
         run: sudo apt-get install -y lftp rsync
 
-      # ── 4. Download tarball from SFTP ───────────────────────────────────────
-      - name: Download web.tar.gz from SFTP
+      # ── 4. Download tarball from SFTP ─────────────────────────────────────────
+      - name: Download tarball
         env:
           SFTP_USER: ${{ secrets.SFTP_USER }}
           SFTP_PASS: ${{ secrets.SFTP_PASS }}
@@ -57,95 +49,105 @@ jobs:
           SFTP_REMOTE_TAR: ${{ secrets.SFTP_REMOTE_TAR }}
         run: |
           mkdir -p temp
-          echo "Downloading $SFTP_REMOTE_TAR from $SFTP_HOST:$SFTP_PORT..."
+          echo "Connecting to $SFTP_HOST:$SFTP_PORT..."
           lftp -u "$SFTP_USER","$SFTP_PASS" "sftp://$SFTP_HOST:$SFTP_PORT" \
             -e "set sftp:auto-confirm yes; set net:timeout 60; set net:max-retries 5; get \"$SFTP_REMOTE_TAR\" -o temp/web.tar.gz; bye"
           echo "Downloaded: $(du -sh temp/web.tar.gz | cut -f1)"
 
-      # ── 5. Verify tarball integrity ──────────────────────────────────────────
+      # ── 5. Verify tarball ─────────────────────────────────────────────────────
       - name: Verify tarball integrity
         run: |
           if ! gzip -t temp/web.tar.gz 2>/dev/null; then
-            echo "❌ Tarball is corrupt — aborting"
+            echo "❌ Tarball corrupt — aborting"
             exit 1
           fi
-          echo "✅ Tarball integrity OK"
+          echo "✅ Tarball OK"
 
-      # ── 6. Extract tarball ───────────────────────────────────────────────────
+      # ── 6. Extract tarball ────────────────────────────────────────────────────
       - name: Extract tarball
         run: |
           rm -rf temp/web_extracted
           mkdir -p temp/web_extracted
           tar -xzf temp/web.tar.gz --strip-components=1 -C temp/web_extracted
-          echo "Extracted contents: $(ls temp/web_extracted | tr '\n' ' ')"
+          echo "Contents: $(ls temp/web_extracted | tr '\n' ' ')"
 
-      # ── 7. rsync extracted → mirror (incremental diff) ──────────────────────
-      - name: Diff extracted files against mirror
+      # ── 7. Diff extracted → mirror ────────────────────────────────────────────
+      - name: Diff against mirror
         id: diff
         run: |
           mkdir -p mirror
-          # Check if mirror is empty (first run)
           MIRROR_COUNT=$(find mirror -type f | wc -l)
           echo "Mirror files: $MIRROR_COUNT"
+
           if [[ "$MIRROR_COUNT" -eq 0 ]]; then
-            echo "Mirror is empty — first run, copying everything..."
-            rsync -a temp/web_extracted/ mirror/ 2>/dev/null || true
-            echo "changed=ALL" >> $GITHUB_OUTPUT
+            echo "First run — copying everything to mirror..."
+            rsync -a temp/web_extracted/ mirror/
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+            echo "changed_count=ALL (first run)" >> $GITHUB_OUTPUT
           else
             rsync -a --checksum --delete --itemize-changes \
-              temp/web_extracted/ mirror/ > temp/rsync_log.txt 2>&1 || { rc=$?; [ $rc -eq 24 ] && echo "rsync: some files vanished (harmless)" || exit $rc; }
+              temp/web_extracted/ mirror/ > temp/rsync_log.txt 2>&1 \
+              || { rc=$?; [ $rc -eq 24 ] || exit $rc; }
             cat temp/rsync_log.txt
-            CHANGED=$(grep -c "^[>*]" temp/rsync_log.txt 2>/dev/null || true)
-            echo "changed=$CHANGED" >> $GITHUB_OUTPUT
+            CHANGED=$(grep -c "^[>*]" temp/rsync_log.txt 2>/dev/null || echo 0)
             echo "Files changed: $CHANGED"
+            if [[ "$CHANGED" -gt 0 ]]; then
+              echo "has_changes=true" >> $GITHUB_OUTPUT
+              echo "changed_count=$CHANGED" >> $GITHUB_OUTPUT
+            else
+              echo "has_changes=false" >> $GITHUB_OUTPUT
+              echo "changed_count=0" >> $GITHUB_OUTPUT
+            fi
           fi
 
-      # ── 8. Exit early if nothing changed ────────────────────────────────────
-      - name: Check for changes
-        if: steps.diff.outputs.changed == '0'
-        run: |
-          echo "✅ No changes detected. Nothing to push."
-          exit 0
+      # ── 8. Skip if nothing changed ────────────────────────────────────────────
+      - name: No changes — exit
+        if: steps.diff.outputs.has_changes == 'false'
+        run: echo "✅ No changes since last sync. Nothing to push."
 
-      # ── 9. rsync mirror → repo ───────────────────────────────────────────────
+      # ── 9. Sync mirror → repo ─────────────────────────────────────────────────
       - name: Sync mirror into repo
-        if: steps.diff.outputs.changed != '0'
+        if: steps.diff.outputs.has_changes == 'true'
         run: |
-          rsync -a --checksum --delete \
+          rsync -a --delete \
             --exclude='.git/' \
+            --exclude='.github/' \
+            --exclude='.gitattributes' \
             --exclude='my.js' \
             --exclude='custom/' \
             --exclude='server.js' \
             --exclude='package.json' \
             --exclude='package-lock.json' \
             --exclude='node_modules/' \
-            --exclude='.github/' \
-            mirror/ ./ || { rc=$?; [ $rc -eq 24 ] && echo "rsync: some files vanished (harmless)" || exit $rc; }
+            mirror/ ./
           echo "✔ Repo synced"
+          echo "Root: $(ls | tr '\n' ' ')"
 
-      # ── 10. Git commit & push ────────────────────────────────────────────────
-      - name: Commit and push changes
-        if: steps.diff.outputs.changed != '0'
-        env:
-          GH_PAT: ${{ secrets.GH_PAT }}
+      # ── 10. Commit & push ─────────────────────────────────────────────────────
+      - name: Commit and push
+        if: steps.diff.outputs.has_changes == 'true'
+        id: commit
         run: |
           git config user.name "BlueMap Bot"
           git config user.email "bluemap-bot@github-actions"
           git add -A
           if git diff --cached --quiet; then
-            echo "✅ Git sees no changes. Nothing to push."
-            exit 0
+            echo "Git sees no changes — nothing to push"
+            echo "pushed=false" >> $GITHUB_OUTPUT
+          else
+            COUNT=$(git diff --cached --name-only | wc -l | tr -d ' ')
+            echo "Committing $COUNT files..."
+            git diff --cached --name-only | head -20
+            git commit -m "BlueMap sync — $(date +'%Y-%m-%d %H:%M:%S') — ${COUNT} file(s)"
+            git push origin HEAD
+            echo "pushed=true" >> $GITHUB_OUTPUT
+            echo "git_changed=$COUNT" >> $GITHUB_OUTPUT
+            echo "✅ Pushed $COUNT files to GitHub"
           fi
-          GIT_CHANGED=$(git diff --cached --name-only | wc -l | tr -d ' ')
-          echo "Committing $GIT_CHANGED changed files..."
-          git diff --cached --name-only | head -20
-          git commit -m "BlueMap sync — $(date +'%Y-%m-%d %H:%M:%S') — ${GIT_CHANGED} file(s)"
-          git push origin HEAD
-          echo "GIT_CHANGED=$GIT_CHANGED" >> $GITHUB_ENV
 
-      # ── 11. Discord notification ─────────────────────────────────────────────
-      - name: Send Discord notification
-        if: steps.diff.outputs.changed != '0' && env.GIT_CHANGED != ''
+      # ── 11. Discord notification ──────────────────────────────────────────────
+      - name: Discord notification
+        if: steps.commit.outputs.pushed == 'true'
         env:
           DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
           DISCORD_CHANNEL_ID: ${{ secrets.DISCORD_CHANNEL_ID }}
@@ -153,9 +155,9 @@ jobs:
           TIME_STR="$(date +'%I:%M %p')"
           DATE_STR="$(date +'%d/%m/%Y')"
           UNIX_TIME="$(date +%s)"
-          CHANGED="${{ env.GIT_CHANGED }}"
+          CHANGED="${{ steps.commit.outputs.git_changed }}"
 
-          HTTP_STATUS=$(curl -s -o /tmp/discord_resp.txt -w "%{http_code}" \
+          HTTP=$(curl -s -o /tmp/dresp.txt -w "%{http_code}" \
             -X POST \
             -H "Authorization: ${DISCORD_BOT_TOKEN}" \
             -H "Content-Type: application/json" \
@@ -177,9 +179,9 @@ jobs:
             }" \
             "https://discord.com/api/v10/channels/${DISCORD_CHANNEL_ID}/messages")
 
-          if [[ "$HTTP_STATUS" == "200" || "$HTTP_STATUS" == "201" ]]; then
+          if [[ "$HTTP" == "200" || "$HTTP" == "201" ]]; then
             echo "✅ Discord notification sent"
           else
-            echo "⚠️ Discord failed (HTTP $HTTP_STATUS):"
-            cat /tmp/discord_resp.txt
+            echo "⚠️ Discord failed (HTTP $HTTP):"
+            cat /tmp/dresp.txt
           fi
