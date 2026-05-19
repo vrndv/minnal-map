@@ -84,12 +84,21 @@ jobs:
         id: diff
         run: |
           mkdir -p mirror
-          rsync -a --checksum --delete --itemize-changes \
-            temp/web_extracted/ mirror/ > temp/rsync_log.txt 2>&1 || { rc=$?; [ $rc -eq 24 ] && echo "rsync: some files vanished (harmless)" || exit $rc; }
-          cat temp/rsync_log.txt
-          CHANGED=$(grep -c "^[>*]" temp/rsync_log.txt 2>/dev/null || true)
-          echo "changed=$CHANGED" >> $GITHUB_OUTPUT
-          echo "Files changed: $CHANGED"
+          # Check if mirror is empty (first run)
+          MIRROR_COUNT=$(find mirror -type f | wc -l)
+          echo "Mirror files: $MIRROR_COUNT"
+          if [[ "$MIRROR_COUNT" -eq 0 ]]; then
+            echo "Mirror is empty — first run, copying everything..."
+            rsync -a temp/web_extracted/ mirror/ 2>/dev/null || true
+            echo "changed=ALL" >> $GITHUB_OUTPUT
+          else
+            rsync -a --checksum --delete --itemize-changes \
+              temp/web_extracted/ mirror/ > temp/rsync_log.txt 2>&1 || { rc=$?; [ $rc -eq 24 ] && echo "rsync: some files vanished (harmless)" || exit $rc; }
+            cat temp/rsync_log.txt
+            CHANGED=$(grep -c "^[>*]" temp/rsync_log.txt 2>/dev/null || true)
+            echo "changed=$CHANGED" >> $GITHUB_OUTPUT
+            echo "Files changed: $CHANGED"
+          fi
 
       # ── 8. Exit early if nothing changed ────────────────────────────────────
       - name: Check for changes
