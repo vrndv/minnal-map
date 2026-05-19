@@ -1,0 +1,25 @@
+{
+  "name": "bluemap-render",
+  "version": "1.0.0",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.22.1",
+    "ssh2-sftp-client": "^12.1.1"
+  },
+  "description": "",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vrndv/minnal.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/vrndv/minnal/issues"
+  },
+  "homepage": "https://github.com/vrndv/minnal#readme"
+}

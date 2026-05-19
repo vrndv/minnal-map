@@ -1,0 +1,176 @@
+name: BlueMap Sync
+
+on:
+  # ── Run automatically on a schedule ───────────────────────────────────────
+  # Runs every day at midnight UTC — adjust to your preference
+  # Examples:
+  #   '0 0 * * *'    = daily at midnight UTC
+  #   '0 18 * * *'   = daily at 11:30 PM IST (18:00 UTC)
+  #   '0 */12 * * *' = every 12 hours
+  schedule:
+    - cron: '0 18 * * *'
+
+  # ── Manual trigger from GitHub Actions UI ─────────────────────────────────
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Reason for manual run (optional)'
+        required: false
+        default: 'Manual trigger'
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60      # kill job if it hangs (e.g. SFTP stall)
+
+    steps:
+
+      # ── 1. Checkout the map repo (minnal) ───────────────────────────────────
+      - name: Checkout minnal repo
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GH_PAT }}
+          fetch-depth: 0        # full history so incremental push works
+
+      # ── 2. Restore mirror cache ──────────────────────────────────────────────
+      #   mirror/ persists between runs so rsync can diff properly.
+      #   Cache key includes the week number — resets weekly as a safety measure.
+      - name: Restore mirror cache
+        uses: actions/cache@v4
+        with:
+          path: mirror
+          key: bluemap-mirror-${{ github.run_number }}
+          restore-keys: |
+            bluemap-mirror-
+
+      # ── 3. Install dependencies ──────────────────────────────────────────────
+      - name: Install lftp and rsync
+        run: sudo apt-get install -y lftp rsync
+
+      # ── 4. Download tarball from SFTP ───────────────────────────────────────
+      - name: Download web.tar.gz from SFTP
+        env:
+          SFTP_USER: ${{ secrets.SFTP_USER }}
+          SFTP_PASS: ${{ secrets.SFTP_PASS }}
+          SFTP_HOST: ${{ secrets.SFTP_HOST }}
+          SFTP_PORT: ${{ secrets.SFTP_PORT }}
+          SFTP_REMOTE_TAR: ${{ secrets.SFTP_REMOTE_TAR }}
+        run: |
+          mkdir -p temp
+          echo "Downloading $SFTP_REMOTE_TAR from $SFTP_HOST:$SFTP_PORT..."
+          lftp -u "$SFTP_USER","$SFTP_PASS" "sftp://$SFTP_HOST:$SFTP_PORT" \
+            -e "set sftp:auto-confirm yes; set net:timeout 60; set net:max-retries 5; get \"$SFTP_REMOTE_TAR\" -o temp/web.tar.gz; bye"
+          echo "Downloaded: $(du -sh temp/web.tar.gz | cut -f1)"
+
+      # ── 5. Verify tarball integrity ──────────────────────────────────────────
+      - name: Verify tarball integrity
+        run: |
+          if ! gzip -t temp/web.tar.gz 2>/dev/null; then
+            echo "❌ Tarball is corrupt — aborting"
+            exit 1
+          fi
+          echo "✅ Tarball integrity OK"
+
+      # ── 6. Extract tarball ───────────────────────────────────────────────────
+      - name: Extract tarball
+        run: |
+          rm -rf temp/web_extracted
+          mkdir -p temp/web_extracted
+          tar -xzf temp/web.tar.gz --strip-components=1 -C temp/web_extracted
+          echo "Extracted contents: $(ls temp/web_extracted | tr '\n' ' ')"
+
+      # ── 7. rsync extracted → mirror (incremental diff) ──────────────────────
+      - name: Diff extracted files against mirror
+        id: diff
+        run: |
+          mkdir -p mirror
+          rsync -a --checksum --delete --itemize-changes \
+            temp/web_extracted/ mirror/ > temp/rsync_log.txt 2>&1 || true
+          cat temp/rsync_log.txt
+          CHANGED=$(grep -c "^[>*]" temp/rsync_log.txt 2>/dev/null || true)
+          echo "changed=$CHANGED" >> $GITHUB_OUTPUT
+          echo "Files changed: $CHANGED"
+
+      # ── 8. Exit early if nothing changed ────────────────────────────────────
+      - name: Check for changes
+        if: steps.diff.outputs.changed == '0'
+        run: |
+          echo "✅ No changes detected. Nothing to push."
+          exit 0
+
+      # ── 9. rsync mirror → repo ───────────────────────────────────────────────
+      - name: Sync mirror into repo
+        if: steps.diff.outputs.changed != '0'
+        run: |
+          rsync -a --checksum --delete \
+            --exclude='.git/' \
+            --exclude='my.js' \
+            --exclude='custom/' \
+            --exclude='server.js' \
+            --exclude='package.json' \
+            --exclude='package-lock.json' \
+            --exclude='node_modules/' \
+            --exclude='.github/' \
+            mirror/ ./ 
+          echo "✔ Repo synced"
+
+      # ── 10. Git commit & push ────────────────────────────────────────────────
+      - name: Commit and push changes
+        if: steps.diff.outputs.changed != '0'
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+        run: |
+          git config user.name "BlueMap Bot"
+          git config user.email "bluemap-bot@github-actions"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "✅ Git sees no changes. Nothing to push."
+            exit 0
+          fi
+          GIT_CHANGED=$(git diff --cached --name-only | wc -l | tr -d ' ')
+          echo "Committing $GIT_CHANGED changed files..."
+          git diff --cached --name-only | head -20
+          git commit -m "BlueMap sync — $(date +'%Y-%m-%d %H:%M:%S') — ${GIT_CHANGED} file(s)"
+          git push origin HEAD
+          echo "GIT_CHANGED=$GIT_CHANGED" >> $GITHUB_ENV
+
+      # ── 11. Discord notification ─────────────────────────────────────────────
+      - name: Send Discord notification
+        if: steps.diff.outputs.changed != '0' && env.GIT_CHANGED != ''
+        env:
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+          DISCORD_CHANNEL_ID: ${{ secrets.DISCORD_CHANNEL_ID }}
+        run: |
+          TIME_STR="$(date +'%I:%M %p')"
+          DATE_STR="$(date +'%d/%m/%Y')"
+          UNIX_TIME="$(date +%s)"
+          CHANGED="${{ env.GIT_CHANGED }}"
+
+          HTTP_STATUS=$(curl -s -o /tmp/discord_resp.txt -w "%{http_code}" \
+            -X POST \
+            -H "Authorization: ${DISCORD_BOT_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"embeds\": [{
+                \"title\": \"🚀 BlueMap Update\",
+                \"description\": \"The 3D BlueMap has been updated to the latest game world and is now live.\",
+                \"color\": 5763719,
+                \"fields\": [
+                  { \"name\": \"🌐 Main Map\", \"value\": \"[**Launch Map**](https://varundev.tech/minnal/#world:-3788:0:-609:1423:0.05:0.01:0:0:perspective)\", \"inline\": true },
+                  { \"name\": \"🛠 Backup Map\", \"value\": \"[**Backup Access**](https://minnal-bv7l.onrender.com/#world:-3788:0:-602:1115:0.13:0.02:0:0:perspective)\", \"inline\": true },
+                  { \"name\": \"📁 Files Changed\", \"value\": \"${CHANGED} file(s)\", \"inline\": true },
+                  { \"name\": \"🕐 Updated\", \"value\": \"<t:${UNIX_TIME}:R>\", \"inline\": true },
+                  { \"name\": \"🕒 Time\", \"value\": \"${TIME_STR}\", \"inline\": true },
+                  { \"name\": \"📅 Date\", \"value\": \"${DATE_STR}\", \"inline\": true }
+                ],
+                \"footer\": { \"text\": \"🟢 All changes are now live\" }
+              }]
+            }" \
+            "https://discord.com/api/v10/channels/${DISCORD_CHANNEL_ID}/messages")
+
+          if [[ "$HTTP_STATUS" == "200" || "$HTTP_STATUS" == "201" ]]; then
+            echo "✅ Discord notification sent"
+          else
+            echo "⚠️ Discord failed (HTTP $HTTP_STATUS):"
+            cat /tmp/discord_resp.txt
+          fi
