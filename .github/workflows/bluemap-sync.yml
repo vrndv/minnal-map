@@ -25,10 +25,10 @@ jobs:
           fetch-depth: 0
 
       # ── 2. Restore mirror cache ───────────────────────────────────────────────
-      # FIXED: use a stable cache key so it's actually restored between runs.
-      # We save with a unique key each run (so new cache is always written),
-      # but restore using the prefix so we always get the latest saved cache.
       - name: Restore mirror cache
+        run: mkdir -p mirror
+
+      - name: Cache mirror
         uses: actions/cache@v4
         with:
           path: mirror
@@ -135,7 +135,15 @@ jobs:
         run: |
           git config user.name "BlueMap Bot"
           git config user.email "bluemap-bot@github-actions"
+
+          # Show what git sees before staging
+          echo "Git status before add:"
+          git status --short | head -20
+
+          # Stage all changes including new untracked files
           git add -A
+          git status --short | head -5
+
           if git diff --cached --quiet; then
             echo "Git sees no changes — nothing to push"
             echo "pushed=false" >> $GITHUB_OUTPUT
