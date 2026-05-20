@@ -145,6 +145,11 @@ jobs:
           git config user.name "BlueMap Bot"
           git config user.email "bluemap-bot@github-actions"
 
+          # Ensure temp/ and mirror/ are never staged by git
+          # (temp/web.tar.gz is 536MB — GitHub hard rejects files over 100MB)
+          grep -qxF 'temp/' .gitignore 2>/dev/null || echo 'temp/' >> .gitignore
+          grep -qxF 'mirror/' .gitignore 2>/dev/null || echo 'mirror/' >> .gitignore
+
           echo "Git status before add:"
           git status --short | head -20
 
