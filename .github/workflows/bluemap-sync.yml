@@ -2,7 +2,7 @@ name: BlueMap Sync
 
 on:
   schedule:
-    - cron: '0 18 * * *'
+    - cron: '0 18 * * *'   # daily 11:30 PM IST — change to your preference
   workflow_dispatch:
     inputs:
       reason:
@@ -25,8 +25,9 @@ jobs:
           fetch-depth: 0
 
       # ── 2. Restore mirror cache ───────────────────────────────────────────────
-      # FIX: stable primary key + run_id suffix so new cache is always written,
-      # but restore-keys ensures the latest saved cache is always picked up.
+      # FIXED: use a stable cache key so it's actually restored between runs.
+      # We save with a unique key each run (so new cache is always written),
+      # but restore using the prefix so we always get the latest saved cache.
       - name: Restore mirror cache
         uses: actions/cache@v4
         with:
@@ -72,6 +73,9 @@ jobs:
           echo "Contents: $(ls temp/web_extracted | tr '\n' ' ')"
 
       # ── 7. Diff extracted → mirror ────────────────────────────────────────────
+      # mirror/ persists via cache between runs — this is where diffing happens.
+      # First run: mirror is empty → copy everything, mark as changed=ALL
+      # Subsequent runs: rsync --checksum finds only actual changes
       - name: Diff against mirror
         id: diff
         run: |
@@ -86,12 +90,8 @@ jobs:
             echo "changed_count=ALL (first run)" >> $GITHUB_OUTPUT
           else
             rsync -a --checksum --delete --itemize-changes \
-              temp/web_extracted/ mirror/ > temp/rsync_log.txt 2>&1
-            rc=$?
-            if [[ $rc -ne 0 && $rc -ne 24 ]]; then
-              echo "❌ rsync failed with exit code $rc"
-              exit $rc
-            fi
+              temp/web_extracted/ mirror/ > temp/rsync_log.txt 2>&1 \
+              || { rc=$?; [ $rc -eq 24 ] || exit $rc; }
             cat temp/rsync_log.txt
             CHANGED=$(grep -c "^[>*]" temp/rsync_log.txt 2>/dev/null || echo 0)
             echo "Files changed: $CHANGED"
@@ -107,7 +107,8 @@ jobs:
       # ── 8. Skip if nothing changed ────────────────────────────────────────────
       - name: No changes — exit
         if: steps.diff.outputs.has_changes == 'false'
-        run: echo "✅ No changes since last sync. Nothing to push."
+        run: |
+          echo "✅ No changes since last sync. Nothing to push."
 
       # ── 9. Sync mirror → repo ─────────────────────────────────────────────────
       - name: Sync mirror into repo
