@@ -89,7 +89,7 @@ jobs:
             echo "has_changes=true" >> $GITHUB_OUTPUT
             echo "changed_count=ALL (first run)" >> $GITHUB_OUTPUT
           else
-            rsync -a --checksum --delete --itemize-changes \
+            rsync -a --checksum --delete --itemize-changes --ignore-missing-args \
               temp/web_extracted/ mirror/ > temp/rsync_log.txt 2>&1 \
               || { rc=$?; [ $rc -eq 24 ] || exit $rc; }
             cat temp/rsync_log.txt
@@ -114,7 +114,7 @@ jobs:
       - name: Sync mirror into repo
         if: steps.diff.outputs.has_changes == 'true'
         run: |
-          rsync -a --delete \
+          rsync -a --delete --ignore-missing-args \
             --exclude='.git/' \
             --exclude='.github/' \
             --exclude='.gitattributes' \
@@ -124,7 +124,7 @@ jobs:
             --exclude='package.json' \
             --exclude='package-lock.json' \
             --exclude='node_modules/' \
-            mirror/ ./
+            mirror/ ./ || { rc=$?; [ $rc -eq 24 ] || exit $rc; }
           echo "✔ Repo synced"
           echo "Root: $(ls | tr '\n' ' ')"
 
