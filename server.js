@@ -66,6 +66,13 @@ function writePlayers(worldDir, players) {
 app.post("/update-all", (req, res) => {
   try {
     const data = req.body;
+    
+    // --- LOGGING ---
+    // Print the exact time and the full JSON payload to the console
+    const timestamp = new Date().toISOString();
+    console.log(`\n[${timestamp}] 📥 Received API Call /update-all`);
+    console.log(JSON.stringify(data, null, 2));
+    // ---------------
 
     // Process each world if it exists in the payload
     if (data.world)  writePlayers("world", data.world);
@@ -94,7 +101,7 @@ app.get("*", (req, res) => {
     return res.status(403).send("Forbidden");
   }
 
-  // 🔥 THE FIX: Prevent caching for live player data so the map actually updates every 2s
+  // Prevent caching for live player data so the map actually updates every 2s
   if (reqPath.includes("/live/") || reqPath.endsWith(".json")) {
     res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
     res.setHeader("Pragma", "no-cache");
