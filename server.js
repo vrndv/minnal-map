@@ -31,7 +31,6 @@ function mime(file) {
 
 // =======================
 // HELPER: write players.json for a given world
-// Note: Removed the 'res' parameter so it doesn't send HTTP responses.
 // =======================
 function writePlayers(worldDir, players) {
   if (!Array.isArray(players)) {
@@ -73,7 +72,6 @@ app.post("/update-all", (req, res) => {
     if (data.nether) writePlayers("world_nether", data.nether);
     if (data.end)    writePlayers("world_the_end", data.end);
 
-    // Send one single success response after all files are written
     res.sendStatus(200);
   } catch (err) {
     console.error("❌ Error writing players data:", err.message);
@@ -82,7 +80,7 @@ app.post("/update-all", (req, res) => {
 });
 
 // =======================
-// STATIC SERVER (GZ SUPPORT)
+// STATIC SERVER (GZ SUPPORT + CACHE FIX)
 // =======================
 app.get("*", (req, res) => {
   let reqPath = decodeURIComponent(req.path);
@@ -94,6 +92,14 @@ app.get("*", (req, res) => {
   // Safety: prevent directory traversal outside ROOT
   if (!normal.startsWith(ROOT)) {
     return res.status(403).send("Forbidden");
+  }
+
+  // 🔥 THE FIX: Prevent caching for live player data so the map actually updates every 2s
+  if (reqPath.includes("/live/") || reqPath.endsWith(".json")) {
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+    res.setHeader("Pragma", "no-cache");
+    res.setHeader("Expires", "0");
+    res.setHeader("Surrogate-Control", "no-store");
   }
 
   if (fs.existsSync(normal) && fs.statSync(normal).isFile()) {
