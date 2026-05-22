@@ -31,62 +31,54 @@ function mime(file) {
 
 // =======================
 // HELPER: write players.json for a given world
+// Note: Removed the 'res' parameter so it doesn't send HTTP responses.
 // =======================
-function writePlayers(worldDir, players, res, label) {
-  try {
-    if (!Array.isArray(players)) {
-      return res.status(400).send("Invalid data: expected an array");
-    }
-
-    const formatted = {
-      players: players.map(p => ({
-        uuid: String(p.uuid || ""),
-        name: String(p.name || ""),
-        foreign: false,
-        position: {
-          x: Number(p.x || 0),
-          y: Number(p.y || 0),
-          z: Number(p.z || 0)
-        },
-        rotation: {
-          pitch: Number(p.pitch || 0),
-          yaw: Number(p.yaw || 0),
-          roll: 0
-        }
-      }))
-    };
-
-    const outPath = path.join(MAPS_ROOT, worldDir, "live", "players.json");
-    fs.mkdirSync(path.dirname(outPath), { recursive: true });
-    fs.writeFileSync(outPath, JSON.stringify(formatted, null, 4));
-
-    console.log(`✔ players.json updated at maps/${worldDir}/live/ (${label})`);
-    res.sendStatus(200);
-  } catch (err) {
-    console.error(`❌ Error writing ${label}:`, err);
-    res.status(500).send("Server error");
+function writePlayers(worldDir, players) {
+  if (!Array.isArray(players)) {
+    throw new Error(`Invalid data: expected an array for ${worldDir}`);
   }
+
+  const formatted = {
+    players: players.map(p => ({
+      uuid: String(p.uuid || ""),
+      name: String(p.name || ""),
+      foreign: false,
+      position: {
+        x: Number(p.x || 0),
+        y: Number(p.y || 0),
+        z: Number(p.z || 0)
+      },
+      rotation: {
+        pitch: Number(p.pitch || 0),
+        yaw: Number(p.yaw || 0),
+        roll: 0
+      }
+    }))
+  };
+
+  const outPath = path.join(MAPS_ROOT, worldDir, "live", "players.json");
+  fs.mkdirSync(path.dirname(outPath), { recursive: true });
+  fs.writeFileSync(outPath, JSON.stringify(formatted, null, 4));
 }
 
 // =======================
-// RECEIVE PLAYER DATA — Overworld
+// RECEIVE PLAYER DATA — ALL WORLDS (Single Endpoint)
 // =======================
-app.post("/players", (req, res) => {
-  writePlayers("world", req.body, res, "overworld");
-});
+app.post("/update-all", (req, res) => {
+  try {
+    const data = req.body;
 
-// =======================
-// RECEIVE PLAYER DATA — Nether
-// =======================
-app.post("/nether", (req, res) => {
-  writePlayers("world_nether", req.body, res, "nether");
-});
+    // Process each world if it exists in the payload
+    if (data.world)  writePlayers("world", data.world);
+    if (data.nether) writePlayers("world_nether", data.nether);
+    if (data.end)    writePlayers("world_the_end", data.end);
 
-// =======================
-// RECEIVE PLAYER DATA — The End
-// =======================
-app.post("/end", (req, res) => {
-  writePlayers("world_the_end", req.body, res, "end");
+    // Send one single success response after all files are written
+    res.sendStatus(200);
+  } catch (err) {
+    console.error("❌ Error writing players data:", err.message);
+    res.status(400).send("Bad Request: " + err.message);
+  }
 });
 
 // =======================
