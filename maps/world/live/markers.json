@@ -1,16 +1,29 @@
 {
-  "html-marker": {
-    "type": "html",
-    "position": { "x": -3788, "y": 120, "z": -68 },
-    "label": "Mega Iron Farm",
-    "html": "<div style='line-height: 2em; font-size: 2em; color: white; transform: translate(-50%, -50%);'>Mega Iron Farm</div>",
-    "anchor": { "x": 0, "y": 0 },
-    "sorting": 0,
-    "listed": true,
-    "classes": [
-      "my-custom-class"
-    ],
-    "min-distance": 10,
-    "max-distance": 10000000
-  }
+    "my-markers": {
+        "label": "My Markers",
+        "toggleable": true,
+        "defaultHidden": false,
+        "sorting": 0,
+        "markers": {
+            "mega-iron-farm": {
+                "type": "html",
+                "label": "Mega Iron Farm",
+                "position": {
+                    "x": -3788,
+                    "y": 120,
+                    "z": -68
+                },
+                "html": "<div style='line-height: 2em; font-size: 2em; color: white; transform: translate(-50%, -50%);'>Mega Iron Farm</div>",
+                "anchor": {
+                    "x": 0,
+                    "y": 0
+                },
+                "classes": [],
+                "minDistance": 10.0,
+                "maxDistance": 10000000.0,
+                "sorting": 0,
+                "listed": true
+            }
+        }
+    }
 }
