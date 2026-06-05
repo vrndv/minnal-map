@@ -3,6 +3,7 @@
     "label": "Locations",
     "toggleable": true,
     "defaultHidden": false,
+    "sorting": 0,
     "markers": {
       "spawn": {
         "type": "html",
@@ -13,7 +14,10 @@
           "z": -601
         },
         "html": "<div style='color:#ff82ea;font-size:16px;font-weight:bold;text-shadow:0 0 4px #000;'>Spawn</div>",
+        "anchor": { "x": 0, "y": 0 },
+        "minDistance": 0.0,
         "maxDistance": 1500,
+        "sorting": 0,
         "listed": true
       },
       "japan": {
@@ -25,7 +29,10 @@
           "z": -339
         },
         "html": "<div style='color:#ff5555;font-size:16px;font-weight:bold;text-shadow:0 0 4px #000;'>JAPAN</div>",
+        "anchor": { "x": 0, "y": 0 },
+        "minDistance": 0.0,
         "maxDistance": 500,
+        "sorting": 0,
         "listed": true
       },
       "mega-iron-farm": {
@@ -37,7 +44,10 @@
           "z": -69
         },
         "html": "<div style='color:#aaaaaa;font-size:16px;font-weight:bold;text-shadow:0 0 4px #000;'>Mega Iron Farm</div>",
+        "anchor": { "x": 0, "y": 0 },
+        "minDistance": 0.0,
         "maxDistance": 500,
+        "sorting": 0,
         "listed": true
       },
       "porkchop-farm": {
@@ -49,7 +59,10 @@
           "z": -306
         },
         "html": "<div style='color:#ff55ff;font-size:16px;font-weight:bold;text-shadow:0 0 4px #000;'>Porkchop Farm</div>",
+        "anchor": { "x": 0, "y": 0 },
+        "minDistance": 0.0,
         "maxDistance": 500,
+        "sorting": 0,
         "listed": true
       },
       "creeper-farm": {
@@ -61,7 +74,10 @@
           "z": -1546
         },
         "html": "<div style='color:#55ff55;font-size:16px;font-weight:bold;text-shadow:0 0 4px #000;'>Creeper Farm</div>",
+        "anchor": { "x": 0, "y": 0 },
+        "minDistance": 0.0,
         "maxDistance": 750,
+        "sorting": 0,
         "listed": true
       },
       "cobblestone-farm": {
@@ -73,7 +89,10 @@
           "z": -285
         },
         "html": "<div style='color:#ffaa00;font-size:16px;font-weight:bold;text-shadow:0 0 4px #000;'>Cobblestone Farm</div>",
+        "anchor": { "x": 0, "y": 0 },
+        "minDistance": 0.0,
         "maxDistance": 500,
+        "sorting": 0,
         "listed": true
       },
       "madhavgg-village": {
@@ -85,7 +104,10 @@
           "z": -788
         },
         "html": "<div style='color:#55aaff;font-size:16px;font-weight:bold;text-shadow:0 0 4px #000;'>MadhavGG's Village</div>",
+        "anchor": { "x": 0, "y": 0 },
+        "minDistance": 0.0,
         "maxDistance": 500,
+        "sorting": 0,
         "listed": true
       },
       "end-portal-gate": {
@@ -97,7 +119,10 @@
           "z": 225
         },
         "html": "<div style='color:#aa00ff;font-size:16px;font-weight:bold;text-shadow:0 0 4px #000;'>End Portal Gate</div>",
+        "anchor": { "x": 0, "y": 0 },
+        "minDistance": 0.0,
         "maxDistance": 1000,
+        "sorting": 0,
         "listed": true
       }
     }
